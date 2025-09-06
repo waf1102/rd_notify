@@ -1,7 +1,10 @@
 import os
+import requests
+import datetime
+import sys
 from configparser import ConfigParser
 
-config_path = os.getenv("RD_NOTIFY_CONF", "/config/rd_notify.conf")
+config_path = "/config/rd_notify.conf"
 config = ConfigParser()
 config.read(config_path)
 
