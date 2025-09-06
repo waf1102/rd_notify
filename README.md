@@ -8,3 +8,14 @@ docker run --rm \
   -e DAYS_THRESHOLD=5 \
   ghcr.io/waf1102/rd_notify:latest
 ```
+
+## Compose Run
+```bash
+mkdir rd_notify && cd rd_notify
+curl -O https://raw.githubusercontent.com/waf1102/rd_notify/refs/heads/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/waf1102/rd_notify/refs/heads/main/rd_notify.conf
+
+# add RD api key to rd_notify.conf
+
+docker compose up
+```
