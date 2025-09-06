@@ -1,7 +1,12 @@
-import os, sys, requests, datetime
+import os
+from configparser import ConfigParser
 
-TOKEN = os.getenv("RD_TOKEN")
-THRESHOLD = int(os.getenv("DAYS_THRESHOLD", "5"))
+config_path = os.getenv("RD_NOTIFY_CONF", "/config/rd_notify.conf")
+config = ConfigParser()
+config.read(config_path)
+
+TOKEN = config.get("real_debrid", "token")
+THRESHOLD = config.getint("real_debrid", "days_threshold", fallback=5)
 
 if not TOKEN:
     print("❌ Missing RD_TOKEN env var")

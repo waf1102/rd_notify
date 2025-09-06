@@ -1,0 +1,10 @@
+version: "3.9"
+
+services:
+  rd_notify:
+    image: ghcr.io/waf1102/rd_notify:latest
+    container_name: rd_notify
+    volumes:
+      - ./rd_notify.conf:/config/rd_notify.conf:ro
+    restart: "no"
+
