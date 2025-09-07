@@ -16,6 +16,11 @@ curl -O https://raw.githubusercontent.com/waf1102/rd_notify/refs/heads/main/dock
 curl -O https://raw.githubusercontent.com/waf1102/rd_notify/refs/heads/main/rd_notify.conf
 
 # add RD api key to rd_notify.conf
+# Change other settings as needed
 
 docker compose up
 ```
+
+## Optional Settings
+### Discord
+discord notifications can be added by putting your webhook in the config
