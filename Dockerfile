@@ -7,6 +7,7 @@ COPY main.py .
 
 # Set default path for the config
 ENV RD_NOTIFY_CONF=/config/rd_notify.conf
+ENV PYTHONUNBUFFERED=1
 
 ENTRYPOINT ["python", "main.py"]
 

@@ -1,6 +1,7 @@
 import requests
 import datetime
 import sys
+import time
 from configparser import ConfigParser
 
 config_path = "/config/rd_notify.conf"
@@ -25,28 +26,52 @@ def send_discord_message(content: str):
     except Exception as e:
         print(f"❌ Failed to send Discord message: {e}")
 
-# --- Main ---
-if not TOKEN:
-    print("❌ Missing Real-Debrid API token in config")
-    sys.exit(1)
+def check_expiry():
+    if not TOKEN:
+        print("❌ Missing Real-Debrid API token in config")
+        sys.exit(1)
 
-resp = requests.get(
-    "https://api.real-debrid.com/rest/1.0/user",
-    headers={"Authorization": f"Bearer {TOKEN}"}
-)
-resp.raise_for_status()
-data = resp.json()
+    resp = requests.get(
+        "https://api.real-debrid.com/rest/1.0/user",
+        headers={"Authorization": f"Bearer {TOKEN}"}
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
-expiry = datetime.datetime.strptime(data["expiration"], "%Y-%m-%dT%H:%M:%S.%fZ")
-days_left = (expiry - datetime.datetime.utcnow()).days
+    expiry = datetime.datetime.strptime(
+        data["expiration"], "%Y-%m-%dT%H:%M:%S.%fZ"
+    ).replace(tzinfo=datetime.UTC)
 
-if days_left <= THRESHOLD:
-    msg = f"⚠️ Real-Debrid expires in {days_left} days ({expiry.date()})"
+    now = datetime.datetime.now(datetime.UTC)
+    days_left = (expiry - now).days
+
+    if days_left <= THRESHOLD:
+        msg = f"⚠️ Real-Debrid expires in {days_left} days ({expiry.date()})"
+    else:
+        msg = f"✅ {days_left} days left (expires {expiry.date()})"
+
     print(msg)
     send_discord_message(msg)
-    sys.exit(1)
-else:
-    msg = f"✅ {days_left} days left (expires {expiry.date()})"
-    print(msg)
-    send_discord_message(msg)
+
+    return expiry
+
+
+# --- Main loop ---
+if __name__ == "__main__":
+    expiry = check_expiry()
+
+    while True:
+        now = datetime.datetime.now(datetime.UTC)
+        target = expiry.replace(year=now.year, month=now.month, day=now.day)
+
+        if target < now:
+            target = target + datetime.timedelta(days=1)
+
+        sleep_seconds = (target - now).total_seconds()
+        print(f"⏳ Sleeping until next check at {target} "
+              f"({int(sleep_seconds/3600)}h {int((sleep_seconds%3600)/60)}m)")
+
+        time.sleep(sleep_seconds)
+
+        expiry = check_expiry()
 
