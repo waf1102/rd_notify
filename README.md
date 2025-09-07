@@ -1,5 +1,5 @@
 # rd_notify
-Lightweight Dockerized script to check when your Real-Debrid account expires.
+Lightweight Dockerized script to check when your Real-Debrid account expires. Sends to console and to Discord if configured. Notifications happen daily.
 
 ## How to Run
 ### Docker
@@ -25,3 +25,6 @@ docker compose up
 ## Optional Settings
 ### Discord
 discord notifications can be added by putting your webhook in the config
+
+### Schedule
+Default notification time is the same as expiration time. This can be changed in the config.

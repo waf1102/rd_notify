@@ -2,6 +2,7 @@ import requests
 import datetime
 import sys
 import time
+import zoneinfo
 from configparser import ConfigParser
 
 config_path = "/config/rd_notify.conf"
@@ -15,6 +16,9 @@ THRESHOLD = config.getint("real_debrid", "days_threshold", fallback=5)
 WEBHOOK_URL = config.get("discord", "webhook_url", fallback=None)
 DISCORD_PREFIX = config.get("discord", "prefix", fallback="RD Notify")
 
+DAILY_TIME = config.get("schedule", "daily_time", fallback="").strip()
+TIMEZONE = config.get("schedule", "timezone", fallback="UTC")
+
 # --- Helpers ---
 def send_discord_message(content: str):
     if not WEBHOOK_URL:
@@ -24,11 +28,11 @@ def send_discord_message(content: str):
         resp = requests.post(WEBHOOK_URL, json=payload, timeout=10)
         resp.raise_for_status()
     except Exception as e:
-        print(f"❌ Failed to send Discord message: {e}")
+        print(f"❌ Failed to send Discord message: {e}", flush=True)
 
 def check_expiry():
     if not TOKEN:
-        print("❌ Missing Real-Debrid API token in config")
+        print("❌ Missing Real-Debrid API token in config", flush=True)
         sys.exit(1)
 
     resp = requests.get(
@@ -50,28 +54,53 @@ def check_expiry():
     else:
         msg = f"✅ {days_left} days left (expires {expiry.date()})"
 
-    print(msg)
+    print(msg, flush=True)
     send_discord_message(msg)
 
     return expiry
 
+def get_next_run(expiry: datetime.datetime):
+    """Decide when the next daily check should run."""
+    now = datetime.datetime.now(datetime.UTC)
+
+    if DAILY_TIME:
+        # User wants a fixed time in their timezone
+        try:
+            tz = zoneinfo.ZoneInfo(TIMEZONE)
+        except Exception:
+            print(f"⚠️ Invalid timezone '{TIMEZONE}', defaulting to UTC", flush=True)
+            tz = datetime.UTC
+
+        # Parse HH:MM
+        hour, minute = map(int, DAILY_TIME.split(":"))
+        target_local = datetime.datetime.now(tz).replace(hour=hour, minute=minute,
+                                                         second=0, microsecond=0)
+        if target_local < datetime.datetime.now(tz):
+            target_local += datetime.timedelta(days=1)
+
+        # Convert to UTC
+        target_utc = target_local.astimezone(datetime.UTC)
+        return target_utc
+
+    else:
+        # Default: align with RD expiry time
+        target = expiry.replace(year=now.year, month=now.month, day=now.day)
+        if target < now:
+            target += datetime.timedelta(days=1)
+        return target
 
 # --- Main loop ---
 if __name__ == "__main__":
     expiry = check_expiry()
 
     while True:
+        next_run = get_next_run(expiry)
         now = datetime.datetime.now(datetime.UTC)
-        target = expiry.replace(year=now.year, month=now.month, day=now.day)
+        sleep_seconds = (next_run - now).total_seconds()
 
-        if target < now:
-            target = target + datetime.timedelta(days=1)
-
-        sleep_seconds = (target - now).total_seconds()
-        print(f"⏳ Sleeping until next check at {target} "
-              f"({int(sleep_seconds/3600)}h {int((sleep_seconds%3600)/60)}m)")
+        print(f"⏳ Sleeping until next check at {next_run} UTC "
+              f"({int(sleep_seconds/3600)}h {int((sleep_seconds%3600)/60)}m)", flush=True)
 
         time.sleep(sleep_seconds)
-
         expiry = check_expiry()
 
