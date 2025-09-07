@@ -14,15 +14,28 @@ TOKEN = config.get("real_debrid", "token", fallback=None)
 THRESHOLD = config.getint("real_debrid", "days_threshold", fallback=5)
 
 WEBHOOK_URL = config.get("discord", "webhook_url", fallback=None)
-DISCORD_PREFIX = config.get("discord", "prefix", fallback="RD Notify")
+DISCORD_PREFIX = config.get("discord", "prefix", fallback="Real Debrid")
+MUTE_UNTIL_THRESHOLD = config.getboolean("discord", "mute_until_threshold", fallback=True)
+MUTE_STARTUP = config.getboolean("discord", "mute_startup_notification", fallback=False)
 
 DAILY_TIME = config.get("schedule", "daily_time", fallback="").strip()
 TIMEZONE = config.get("schedule", "timezone", fallback="UTC")
 
 # --- Helpers ---
-def send_discord_message(content: str):
+def send_discord_message(content: str, days_left: int, is_startup: bool):
+    # Respect startup mute
+    if is_startup and MUTE_STARTUP:
+        print("[INFO] Skipping startup Discord notification (muted by config)", flush=True)
+        return
+
+    # Respect threshold mute only for non-startup notifications
+    if not is_startup and MUTE_UNTIL_THRESHOLD and days_left > THRESHOLD:
+        print(f"[INFO] Skipping Discord message (days_left={days_left}, threshold={THRESHOLD})", flush=True)
+        return
+
     if not WEBHOOK_URL:
         return
+
     payload = {"content": f"**{DISCORD_PREFIX}:** {content}"}
     try:
         resp = requests.post(WEBHOOK_URL, json=payload, timeout=10)
@@ -30,7 +43,8 @@ def send_discord_message(content: str):
     except Exception as e:
         print(f"❌ Failed to send Discord message: {e}", flush=True)
 
-def check_expiry():
+
+def check_expiry(is_startup: bool = False):
     if not TOKEN:
         print("❌ Missing Real-Debrid API token in config", flush=True)
         sys.exit(1)
@@ -42,28 +56,25 @@ def check_expiry():
         )
     except requests.RequestException as e:
         print(f"❌ Failed to reach Real-Debrid: {e}", flush=True)
-        send_discord_message(f"❌ Failed to reach Real-Debrid: {e}")
+        send_discord_message(f"❌ Failed to reach Real-Debrid: {e}", 0, is_startup=False)
         sys.exit(1)
 
     if resp.status_code == 401:
         msg = "❌ Real-Debrid token is invalid or expired (401)"
         print(msg, flush=True)
-        send_discord_message(msg)
+        send_discord_message(msg, 0, is_startup=False)
         sys.exit(1)
 
     if resp.status_code == 403:
         msg = "❌ Real-Debrid account locked or permission denied (403)"
         print(msg, flush=True)
-        send_discord_message(msg)
+        send_discord_message(msg, 0, is_startup=False)
         sys.exit(1)
 
     resp.raise_for_status()
     data = resp.json()
 
-    expiry = datetime.datetime.strptime(
-        data["expiration"], "%Y-%m-%dT%H:%M:%S.%fZ"
-    ).replace(tzinfo=datetime.UTC)
-
+    expiry = datetime.datetime.strptime(data["expiration"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=datetime.UTC)
     now = datetime.datetime.now(datetime.UTC)
     days_left = (expiry - now).days
 
@@ -73,34 +84,27 @@ def check_expiry():
         msg = f"✅ {days_left} days left (expires {expiry.date()})"
 
     print(msg, flush=True)
-    send_discord_message(msg)
+    send_discord_message(msg, days_left, is_startup)
 
     return expiry
 
-
 def get_next_run(expiry: datetime.datetime):
-    """Decide when the next daily check should run."""
     now = datetime.datetime.now(datetime.UTC)
 
     if DAILY_TIME:
-        # User wants a fixed time in their timezone
+        # User-specified daily time
         try:
             tz = zoneinfo.ZoneInfo(TIMEZONE)
         except Exception:
             print(f"⚠️ Invalid timezone '{TIMEZONE}', defaulting to UTC", flush=True)
             tz = datetime.UTC
 
-        # Parse HH:MM
         hour, minute = map(int, DAILY_TIME.split(":"))
-        target_local = datetime.datetime.now(tz).replace(hour=hour, minute=minute,
-                                                         second=0, microsecond=0)
+        target_local = datetime.datetime.now(tz).replace(hour=hour, minute=minute, second=0, microsecond=0)
         if target_local < datetime.datetime.now(tz):
             target_local += datetime.timedelta(days=1)
-
-        # Convert to UTC
         target_utc = target_local.astimezone(datetime.UTC)
         return target_utc
-
     else:
         # Default: align with RD expiry time
         target = expiry.replace(year=now.year, month=now.month, day=now.day)
@@ -110,7 +114,8 @@ def get_next_run(expiry: datetime.datetime):
 
 # --- Main loop ---
 if __name__ == "__main__":
-    expiry = check_expiry()
+    is_startup = True
+    expiry = check_expiry(is_startup=is_startup)
 
     while True:
         next_run = get_next_run(expiry)
@@ -118,8 +123,9 @@ if __name__ == "__main__":
         sleep_seconds = (next_run - now).total_seconds()
 
         print(f"⏳ Sleeping until next check at {next_run} UTC "
-              f"({int(sleep_seconds/3600)}h {int((sleep_seconds%3600)/60)}m)", flush=True)
+              f"({int(sleep_seconds/3600)}h {int((sleep_seconds % 3600)/60)}m)", flush=True)
 
         time.sleep(sleep_seconds)
-        expiry = check_expiry()
+        is_startup = False
+        expiry = check_expiry(is_startup=is_startup)
 
