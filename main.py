@@ -35,10 +35,28 @@ def check_expiry():
         print("❌ Missing Real-Debrid API token in config", flush=True)
         sys.exit(1)
 
-    resp = requests.get(
-        "https://api.real-debrid.com/rest/1.0/user",
-        headers={"Authorization": f"Bearer {TOKEN}"}
-    )
+    try:
+        resp = requests.get(
+            "https://api.real-debrid.com/rest/1.0/user",
+            headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+    except requests.RequestException as e:
+        print(f"❌ Failed to reach Real-Debrid: {e}", flush=True)
+        send_discord_message(f"❌ Failed to reach Real-Debrid: {e}")
+        sys.exit(1)
+
+    if resp.status_code == 401:
+        msg = "❌ Real-Debrid token is invalid or expired (401)"
+        print(msg, flush=True)
+        send_discord_message(msg)
+        sys.exit(1)
+
+    if resp.status_code == 403:
+        msg = "❌ Real-Debrid account locked or permission denied (403)"
+        print(msg, flush=True)
+        send_discord_message(msg)
+        sys.exit(1)
+
     resp.raise_for_status()
     data = resp.json()
 
@@ -58,6 +76,7 @@ def check_expiry():
     send_discord_message(msg)
 
     return expiry
+
 
 def get_next_run(expiry: datetime.datetime):
     """Decide when the next daily check should run."""
